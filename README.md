@@ -161,13 +161,13 @@ This module lays the foundation for the sorter’s perception subsystem.
 
 # 🔮 Future plan
 
-✔ Basic pick & place logic
-✔ RGB-D perception pipeline
-✔ Finite State Machine for autonomy
-✔ Physics-accurate grasping logic
-⬜ **ROS 2 bridge + Real Franka deployment**
-⬜ **Domain Randomization (lighting, textures)**
-⬜ **Reinforcement Learning extension**
+* ✔ Basic pick & place logic
+* ✔ RGB-D perception pipeline
+* ✔ Finite State Machine for autonomy
+* ✔ Physics-accurate grasping logic
+* ⬜ **ROS 2 bridge + Real Franka deployment**
+* ⬜ **Domain Randomization (lighting, textures)**
+*⬜ **Reinforcement Learning extension**
 
 ---
 
