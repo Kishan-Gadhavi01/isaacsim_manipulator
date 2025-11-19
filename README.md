@@ -167,7 +167,7 @@ This module lays the foundation for the sorter’s perception subsystem.
 * ✔ Physics-accurate grasping logic
 * ⬜ **ROS 2 bridge + Real Franka deployment**
 * ⬜ **Domain Randomization (lighting, textures)**
-*⬜ **Reinforcement Learning extension**
+* ⬜ **Reinforcement Learning extension**
 
 ---
 
