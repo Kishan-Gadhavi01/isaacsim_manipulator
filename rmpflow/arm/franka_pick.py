@@ -1,12 +1,11 @@
 # Copyright (c) 2025, The Big Brain. All rights reserved.
-# This script executes a vision-driven, collision-free pick-and-place task using Franka and RMPFlow.
+# REAL-TIME TRACKING: Updates Target Pose constantly until Grasp Lock.
 
 from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": False})
 
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import os 
 
 from isaacsim.core.api import World
 from isaacsim.core.api.materials import PhysicsMaterial
@@ -14,31 +13,37 @@ from isaacsim.core.api.objects import FixedCuboid, DynamicCuboid, VisualSphere
 from isaacsim.core.utils.rotations import euler_angles_to_quat
 from isaacsim.core.utils.types import ArticulationAction
 from isaacsim.core.prims import SingleXFormPrim 
-from isaacsim.core.utils.stage import open_stage
 
 from isaacsim.robot.manipulators.examples.franka import Franka
 from isaacsim.robot_motion.motion_generation import RmpFlow, ArticulationMotionPolicy
 from isaacsim.robot_motion.motion_generation.interface_config_loader import load_supported_motion_policy_config
 
 # --- CONFIGURATION ---
-USD_PATH = "/home/popoy/robotics/sim/isaacsim_manipulator/rmpflow/arm/base.usd"
-GRASP_BIAS = 0.01 
 CUBE_SIZE = 0.05
-# ---------------------
+GRASP_BIAS = 0.01 
+HOVER_DIST = 0.08  
 
-# --- STATE MACHINE ENUMS ---
+# POSITIONS
+BIN_LOCATION = np.array([0.5, -0.4, 0.15]) 
+CRUISE_POSE = np.array([0.4, 0.0, 0.5])    
+
+# --- STATE MACHINE ---
 class PickStates:
-    HOVER = 0
-    DESCEND = 1
-    CLOSE = 2
-    LIFT = 3
+    SEARCH = 0
+    HOVER = 1        # TRACKING ACTIVE
+    DESCEND = 2      # TRACKING ACTIVE
+    CLOSE = 3        # TRACKING LOCKED (Physical interaction)
+    RETRACT = 4      
+    CRUISE = 5       
+    PLACE_HOVER = 6  
+    PLACE_DROP = 7   
+    RESET = 8        
 
 def simulate_vision_detection(cube_quat_isaac):
     """ 
-    Simulates a CV system: Calculates optimal gripper orientation and surface normal.
-    Assumes standard Isaac Sim (w, x, y, z) quaternion format for input.
+    Calculates optimal gripper orientation based on current cube rotation.
+   
     """
-    # Convert Isaac Sim (w,x,y,z) to SciPy (x,y,z,w)
     r = R.from_quat([cube_quat_isaac[1], cube_quat_isaac[2], cube_quat_isaac[3], cube_quat_isaac[0]])
     matrix = r.as_matrix()
     local_x, local_y, local_z = matrix[:, 0], matrix[:, 1], matrix[:, 2]
@@ -48,63 +53,45 @@ def simulate_vision_detection(cube_quat_isaac):
 
     axes = [(local_x, "X"), (-local_x, "-X"), (local_y, "Y"), (-local_y, "-Y"), (local_z, "Z"), (-local_z, "-Z")]
 
-    # Find the face normal most aligned with World Up (for top grasp)
     best_normal_vec, best_normal_dot = None, -1.0
     for vec, _ in axes:
         if np.dot(vec, world_up) > best_normal_dot:
             best_normal_dot, best_normal_vec = np.dot(vec, world_up), vec
 
-    # Find the tangent vector perpendicular to normal and aligned with World Forward
     best_tangent_vec, best_tangent_dot = None, -1.0
     for vec, _ in axes:
-        if abs(np.dot(vec, best_normal_vec)) > 0.05: continue # Must be orthogonal to normal
+        if abs(np.dot(vec, best_normal_vec)) > 0.05: continue 
         if np.dot(vec, world_forward) > best_tangent_dot:
             best_tangent_dot, best_tangent_vec = np.dot(vec, world_forward), vec
 
-    # Construct the target orientation matrix
-    target_z = -best_normal_vec # Gripper Z-axis points into the object
+    target_z = -best_normal_vec 
     target_x = best_tangent_vec
     target_y = np.cross(target_z, target_x)
     
     target_r = R.from_matrix(np.column_stack((target_x, target_y, target_z)))
-    
-    # Return quaternion in (w, x, y, z) Isaac Sim format
     qs = target_r.as_quat()
     return np.array([qs[3], qs[0], qs[1], qs[2]]), best_normal_vec
 
 def main():
-    # --- 2. LOAD THE CUSTOM STAGE ---
-    print(f"Loading custom stage: {USD_PATH}...")
-    open_stage(USD_PATH) 
-
-    # --- 3. INITIALIZE THE WORLD AND SCENE ---
     world = World(stage_units_in_meters=1.0, physics_dt=1.0/60.0, rendering_dt=1.0/60.0)
-    
-    # ADD DEFAULT GROUND PLANE SAFELY (in case base.usd doesn't have one)
-    GROUND_PRIM_PATH = "/World/defaultGroundPlane"
-    ground_plane_obstacle = world.scene.add_default_ground_plane(
-        prim_path=GROUND_PRIM_PATH, name="default_ground_plane"
-    )
+    world.scene.add_default_ground_plane(prim_path="/World/defaultGroundPlane", name="default_ground_plane")
 
-    # --- 4. ROBOT, TARGET, AND OBSTACLE SETUP ---
     franka = world.scene.add(Franka(prim_path="/World/Franka", name="franka"))
     
-    # CRITICAL: Get the true TCP link object for accurate end-effector observation
     TCP_PRIM_PATH = "/World/Franka/panda_hand/tool_center" 
     tool_center_link = SingleXFormPrim(prim_path=TCP_PRIM_PATH, name="tool_center_link")
-    
+
     high_friction_mat = PhysicsMaterial(
         prim_path="/World/Physics_Materials/HighFriction",
         name="high_friction_material",
-        static_friction=1.0, dynamic_friction=1.0, restitution=0.0       
+        static_friction=1.5, dynamic_friction=1.5, restitution=0.0       
     )
 
-    # Add the dynamic cube to be picked
     target_cube = world.scene.add(
         DynamicCuboid(
             prim_path="/World/TargetCube", 
-            position=np.array([0.5, 0.0, 0.5]),
-            orientation=euler_angles_to_quat(np.array([0, np.pi/2 + 0.2, np.pi/4])), 
+            position=np.array([0.5, 0.0, 0.05]),
+            orientation=euler_angles_to_quat(np.array([0, 0, 0])), 
             scale=np.array([CUBE_SIZE]*3), 
             color=np.array([1.0, 0.0, 0.0]),
             mass=0.1,
@@ -112,117 +99,140 @@ def main():
         )
     )
     
-    # Add an obstacle wall for RMPFlow to avoid
+    ghost_target = world.scene.add(
+        VisualSphere(prim_path="/World/GhostTargetSphere", radius=0.005, color=np.array([1.0, 1.0, 0.0]))
+    )
+
     wall = world.scene.add(FixedCuboid(prim_path="/World/Wall", position=np.array([0.5, 0.2, 0.3]), scale=np.array([0.3, 0.05, 0.2]), color=np.array([0,0,1])))
 
-    # GHOST SPHERE SETUP (Visual debugging for TRUE TCP)
-    GHOST_RADIUS = 0.005 
-    ghost_target = world.scene.add(
-        VisualSphere(
-            prim_path="/World/GhostTargetSphere",
-            position=np.array([0.0, 0.0, 0.0]), 
-            radius=GHOST_RADIUS,
-            color=np.array([1.0, 1.0, 0.0]), 
-            name="ghost_sphere",
-        )
-    )
-    
-    # --- 5. INITIALIZE AND SET ROBOT HOME POSE ---
     world.reset()
-    
-    # CRITICAL: Initialize the Franka and set its home pose AFTER world.reset()
     franka.initialize()
     franka.set_joints_default_state(positions=np.array([0, -np.pi/4, 0, -3*np.pi/4, 0, np.pi/2, np.pi/4, 0.04, 0.04]))
-
-    # --- 6. RMPFLOW SETUP ---
+    
     rmp_config = load_supported_motion_policy_config("Franka", "RMPflow")
     rmp_config["end_effector_frame_name"] = "right_gripper" 
     rmpflow = RmpFlow(**rmp_config) 
-    
-    # ✅ THE CRITICAL FIX: Register the ground plane with RMPFlow for avoidance
-    rmpflow.add_obstacle(ground_plane_obstacle)
-    
-    # Register the wall obstacle
     rmpflow.add_obstacle(wall)
-    
-    # Ensure the target object is NOT registered as an obstacle
+    rmpflow.add_obstacle(world.scene.get_object("default_ground_plane")) 
     rmpflow.remove_obstacle(target_cube) 
-    
-    # Final Motion Policy Wrapper
     articulation_rmpflow = ArticulationMotionPolicy(franka, rmpflow, 1.0/60.0)
 
-    # --- 7. STATE MACHINE VARIABLES ---
-    current_state = PickStates.HOVER
+    current_state = PickStates.SEARCH
     gripper_target = 0.04 
     wait_counter = 0      
     
-    print("🚀 Simulation Started. RMPFlow Ground Collision Avoidance is ACTIVE.")
+    # Persistent targets
+    target_pos = CRUISE_POSE
+    target_quat = np.array([0, 1, 0, 0])
+    
+    # Variables to store the "Locked" pose when we start grasping
+    locked_pos = None
+    locked_quat = None
 
-    # --- 8. THE MAIN SIMULATION LOOP ---
+    print("🚀 REAL-TIME VISION ACTIVE. Try moving the cube!")
+
     while simulation_app.is_running():
         world.step(render=True)
         
         if world.is_playing():
-            # PERCEPTION: Get the current pose of the cube
+            # --- 1. REAL-TIME DATA ---
+            # We read the cube's position EVERY FRAME
             cube_pos, raw_quat = target_cube.get_world_pose()
+            ee_pos, ee_rot = tool_center_link.get_world_pose()
+
+            # Calculate vision solution EVERY FRAME (unless locked)
+            # This ensures if the cube bounces, we know where the new "Top" is immediately.
             vision_quat, face_normal = simulate_vision_detection(raw_quat)
             
-            # OBSERVATION: Get the current pose of the actual end-effector/TCP
-            ee_pos, observed_quat = tool_center_link.get_world_pose()
-            
-            # --- STATE MACHINE LOGIC ---
-            if current_state == PickStates.HOVER:
-                # Target Position: Hover safely above the cube face
-                target_pos = cube_pos + (face_normal * CUBE_SIZE/2)
-                gripper_target = 0.04 
-                dist_error = np.linalg.norm(ee_pos - target_pos) 
-                
-                if world.current_time_step_index % 60 == 0:
-                     print(f"State: HOVER | TRUE TCP Error: {dist_error:.4f}m")
+            # --- 2. STATE MACHINE ---
+            if current_state == PickStates.SEARCH:
+                # Transition immediately to active tracking
+                current_state = PickStates.HOVER
 
-                if dist_error < 0.01:
-                    print(f"✅ Target Reached (Err: {dist_error:.3f}m). Switching to DESCEND.")
+            elif current_state == PickStates.HOVER:
+                # ACTIVE TRACKING: Target follows the cube dynamically
+                target_pos = cube_pos + (face_normal * HOVER_DIST)
+                target_quat = vision_quat
+                
+                # If the cube is moving (bouncing), target_pos will jump. 
+                # RMPFlow will smooth this out, but it will chase the cube.
+                if np.linalg.norm(ee_pos - target_pos) < 0.02:
                     current_state = PickStates.DESCEND
-                
+
             elif current_state == PickStates.DESCEND:
-                # Move closer to the cube face for grasping
+                # ACTIVE TRACKING: Still chasing the cube as we dive in
                 target_pos = cube_pos + (face_normal * GRASP_BIAS)
-                gripper_target = 0.04 
-                
-                dist_to_cube = np.linalg.norm(ee_pos - target_pos)
-                
-                if dist_to_cube < 0.065:
-                    print("⬇️ Descended. Switching to CLOSE.")
-                    current_state = PickStates.CLOSE
+                target_quat = vision_quat
+
+                if np.linalg.norm(ee_pos - target_pos) < 0.01:
                     wait_counter = 0
+                    # --- LOCK TARGET ---
+                    # We stop tracking now. The hand is in position. 
+                    # If we keep tracking, closing fingers might wiggle the cube and confuse the robot.
+                    locked_pos = target_pos
+                    locked_quat = target_quat
+                    current_state = PickStates.CLOSE
 
             elif current_state == PickStates.CLOSE:
-                # Hold position and close the gripper
-                target_pos = cube_pos + (face_normal * GRASP_BIAS)
-                gripper_target = 0.00
-                
-                wait_counter += 1
-                if wait_counter > 60: # Wait for 1 second (60 steps)
-                    print("✊ Gripper closed. Switching to LIFT.")
-                    current_state = PickStates.LIFT
-
-            elif current_state == PickStates.LIFT:
-                # Lift the cube straight up
-                target_pos = cube_pos + np.array([0, 0, 0.3]) 
+                # USE LOCKED TARGET (Ignore cube movement caused by gripper)
+                target_pos = locked_pos
+                target_quat = locked_quat
                 gripper_target = 0.00 
                 
-                if ee_pos[2] > 0.45:
-                    pass
-                            
+                wait_counter += 1
+                if wait_counter > 50: 
+                    current_state = PickStates.RETRACT
 
-            # RMPFlow Execution
+            elif current_state == PickStates.RETRACT:
+                # Lift Straight Up (World Z)
+                target_pos = np.array([locked_pos[0], locked_pos[1], 0.45])
+                target_quat = locked_quat # Maintain grasp orientation
+                
+                if ee_pos[2] > 0.40:
+                    current_state = PickStates.CRUISE
+
+            elif current_state == PickStates.CRUISE:
+                # "Bridge" Logic: Travel to Neutral & Unwind Wrist
+                target_pos = CRUISE_POSE
+                target_quat = euler_angles_to_quat(np.array([np.pi, 0, 0]))
+                
+                if np.linalg.norm(ee_pos - target_pos) < 0.08:
+                    current_state = PickStates.PLACE_HOVER
+
+            elif current_state == PickStates.PLACE_HOVER:
+                target_pos = BIN_LOCATION + np.array([0, 0, 0.1])
+                target_quat = euler_angles_to_quat(np.array([np.pi, 0, 0]))
+                
+                if np.linalg.norm(ee_pos - target_pos) < 0.05:
+                    wait_counter = 0
+                    current_state = PickStates.PLACE_DROP
+
+            elif current_state == PickStates.PLACE_DROP:
+                target_pos = BIN_LOCATION + np.array([0, 0, 0.1])
+                gripper_target = 0.04 # Open
+                
+                wait_counter += 1
+                if wait_counter > 40:
+                    current_state = PickStates.RESET
+
+            elif current_state == PickStates.RESET:
+                # Respawn Logic
+                rand_x = np.random.uniform(0.4, 0.6)
+                rand_y = np.random.uniform(-0.2, 0.2)
+                rand_rot = euler_angles_to_quat(np.array([0, np.random.uniform(0, 3), np.random.uniform(0, 3)]))
+                
+                target_cube.set_world_pose(position=np.array([rand_x, rand_y, 0.05]), orientation=rand_rot)
+                # KILL ENERGY: Stop it from flying away after teleport
+                target_cube.set_linear_velocity(np.array([0,0,0]))
+                target_cube.set_angular_velocity(np.array([0,0,0]))
+                
+                current_state = PickStates.SEARCH
+
+            # --- RMPFLOW UPDATE ---
             rmpflow.update_world() 
-            rmpflow.set_end_effector_target(target_pos, vision_quat)
-            
-            # VISUAL DEBUG: Update Ghost Sphere to show where the robot thinks its TCP is
-            ghost_target.set_world_pose(position=ee_pos, orientation=observed_quat) 
+            rmpflow.set_end_effector_target(target_pos, target_quat)
+            ghost_target.set_world_pose(position=target_pos, orientation=target_quat) 
 
-            # Apply actions
             arm_action = articulation_rmpflow.get_next_articulation_action()
             full_joint_positions = np.append(arm_action.joint_positions, [gripper_target, gripper_target])
             franka.apply_action(ArticulationAction(joint_positions=full_joint_positions))
@@ -230,9 +240,4 @@ def main():
     simulation_app.close()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("Simulation interrupted by user.")
-    finally:
-        simulation_app.close()
+    main()
