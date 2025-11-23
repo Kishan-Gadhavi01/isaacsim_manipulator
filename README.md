@@ -17,10 +17,7 @@
   <img src="./media/sorter.gif" width="100%" style="border-radius: 8px;" />
 </div>
 <div align="center">
-  <video width="100%" style="border-radius: 8px;" controls autoplay muted loop>
-    <source src="./media/live_pick.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+  <img src="./media/live.pick.gif" width="100%" style="border-radius: 8px;" />
 </div>
 ---
 
