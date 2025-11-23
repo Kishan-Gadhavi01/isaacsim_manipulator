@@ -16,6 +16,7 @@
 <div align="center">
   <img src="./media/sorter.gif" width="100%" style="border-radius: 8px;" />
 </div>
+
 <div align="center">
   <img src="./media/live_pick.gif" width="100%" style="border-radius: 8px;" />
 </div>
