@@ -1,7 +1,7 @@
 
 
 
-# 🤖 Isaac Sim Manipulator Workflows
+# 🦾 Autonomous Perception & Manipulation Framework On Isaacsim
 
 ### *RMPFlow Motion Generation, Closed-Loop Vision & Dynamic Interception*
 
