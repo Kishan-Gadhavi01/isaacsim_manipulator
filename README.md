@@ -1,78 +1,94 @@
 
 
+
 # 🤖 Isaac Sim Manipulator Workflows
-### *Closed-Loop Visual Servoing, Task-Level Control & Sim2Real Perception*
+
+### *RMPFlow Motion Generation, Closed-Loop Vision & Dynamic Interception*
 
 <p align="center">
   <img src="https://img.shields.io/badge/Isaac%20Sim-4.5.0-76B900?logo=nvidia&logoColor=white" />
+  <img src="https://img.shields.io/badge/RMPFlow-Motion%20Policy-purple" />
   <img src="https://img.shields.io/badge/Python-3.10-blue?logo=python" />
   <img src="https://img.shields.io/badge/OpenCV-Computer%20Vision-red?logo=opencv" />
   <img src="https://img.shields.io/badge/Franka%20Panda-Robotics-orange" />
-  <img src="https://img.shields.io/badge/Status-Active%20Development-brightgreen" />
 </p>
----
 
 <div align="center">
   <img src="./media/sorter.gif" width="100%" style="border-radius: 8px;" />
 </div>
-
+<div align="center">
+  <video width="100%" style="border-radius: 8px;" controls autoplay muted loop>
+    <source src="./media/live_pick.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+</div>
 ---
 
 # 📘 Executive Summary
 
-This repository houses advanced **Robotic Manipulation Workflows** engineered within **NVIDIA Isaac Sim 4.5.0**. 
+This repository houses advanced **Robotic Manipulation Workflows** engineered in **NVIDIA Isaac Sim 4.5.0**.
 
-Moving beyond simple playback, this project implements **intelligent, sensory-guided autonomy**. It leverages the **Omniverse Kit SDK** to bridge the gap between **Synthetic Perception** (RGB-D) and **Task-Level Control**. 
+The project implements **intelligent, sensory-guided autonomy**, bridging the gap between **Synthetic Perception** and **Dynamic Control**. It contrasts high-level task planners with fluid, reactive motion generation.
 
-The core focus is on **Sim2Real transferability**: developing robust grasp heuristics, occlusion-aware logic, and vision pipelines that mirror physical deployment constraints.
+Key achievements include **sim-to-real-capable Computer Vision** pipelines and solving the **Moving Target Interception** problem using **RMPFlow** for smooth, collision-aware trajectory optimization.
 
 ---
 
 # 🛠️ Technical Stack & Keywords
 
-| Domain | Technologies & Concepts |
-| :--- | :--- |
-| **Simulation Core** | **NVIDIA Isaac Sim 4.5.0**, **USD** (Universal Scene Description), **PhysX 5** (Rigid Body Dynamics), Omniverse Kit. |
-| **Motion Control** | **PickPlaceController** (High-Level Task Abstraction), **Inverse Kinematics (IK)**, Cartesian Interpolation, End-Effector Pose Control. |
-| **Perception** | **OpenCV**, Pinhole Camera Model, **Depth Deprojection** (2D-to-3D), Intrinsic/Extrinsic Calibration, HSV Filtering, Synthetic Data Generation. |
-| **Control Logic** | Finite State Machines (**FSM**), **Visual Servoing** (Closed-Loop), Geometric Grasp Heuristics, Dynamic Collision Avoidance. |
-| **Hardware (Sim)** | **Franka Emika Panda** (7-DOF), Parallel Jaw Gripper, RGB-D Sensors. |
+| Domain                | Technologies & Concepts                                  |
+| --------------------- | -------------------------------------------------------- |
+| **Simulation Core**   | NVIDIA Isaac Sim 4.5.0, USD, PhysX 5, Omniverse Kit      |
+| **Motion Generation** | RMPFlow, Lula Kinematics, Dynamic Obstacle Avoidance     |
+| **Control Logic**     | PickPlaceController, Visual Servoing, Velocity Sync, FSM |
+| **Perception**        | OpenCV, RGB-D, Depth Deprojection, ROI Masking           |
+| **Hardware (Sim)**    | Franka Emika Panda, Parallel Gripper, RGB-D Sensors      |
 
 ---
 
 # 🚀 Featured Modules
 
-## 🔴 1. Intelligent RGB-D Sorting System
+## 🟠 1. Dynamic Conveyor Belt Interception
+
+**File:** `rmpflow/arm/conveyor_belt.py`
+
+A complex kinematic challenge requiring interception of a moving object.
+
+### 🧠 Engineering Highlights
+
+* **RMPFlow Integration** for smooth, collision-aware trajectories
+* **Velocity Synchronization**: end-effector matches conveyor speed
+* **Predictive Tracking**: computes interception point downstream
+* **Finite State Machine:**
+  `INTERCEPT → SYNC → GRASP → LIFT`
+
+---
+
+## 🔴 2. Intelligent RGB-D Sorting System
+
 **File:** `PickPlaceController/arm/RGB_cube_sorter.py`
 
-A fully autonomous loop demonstrating **Hand-Eye Coordination**. The system does not use ground-truth hacks; it "sees" the world through a simulated camera.
+A fully autonomous perception-based pick-and-place pipeline.
 
-### 🧠 Engineering Highlights:
-* **Synthetic Vision Pipeline:**
-    * Real-time **Depth Injection**: Converts 2D pixels $(u,v)$ + Depth $(d)$ into 3D World Coordinates $(x,y,z)$ using inverse intrinsic matrix projection.
-    * **Occlusion Filtering**: Dynamic ROI masking to isolate the "Spawn Zone" from the "Bin Zone."
-* **Geometric Grasp Heuristics (The "Brain"):**
-    * Implements a custom **Collision Logic Gate** that analyzes neighbor geometry.
-    * Automatically selects between **Standard Grip ($0^\circ$)** or **Rotated Grip ($90^\circ$)** based on lateral vs. longitudinal clearance.
-* **Robust Control Architecture:**
-    * **State Machine:** `SEARCH` $\to$ `PLAN` $\to$ `PICK` $\to$ `PLACE` $\to$ `RESET`.
-    * **Sensor Fusion:** Monitors gripper width and end-effector height during transport to detect **object slippage** and trigger auto-recovery.
+### 🧠 Engineering Highlights
 
-## 🟦 2. Kinematics & Physics Foundation
-**File:** `hello_pick_place.py`
+* **Synthetic Vision Pipeline**
 
-The foundational implementation of the **PickPlaceController**, utilizing Isaac Sim's high-level abstraction for multi-phase manipulation.
-* Setup of **SingleArticulation** wrappers.
-* Tuning of PhysX solver iterations (64 steps) for stable contact dynamics.
-* Implementation of basic approach/lift heuristics.
+  * Depth projection from 2D → 3D using inverse intrinsics
+  * ROI masking & occlusion filtering
+* **Geometric Grasp Heuristics**
 
-## 🟩 3. Synthetic Sensor Sandbox
-**File:** `hello_cam.py`
+  * Auto-select grasp angle (0° or 90°)
+  * Collision-aware orientation logic
 
-A standalone module for **Simulated Sensor integration**.
-* Configuring `omni.isaac.sensor.Camera` prims.
-* Visualizing Depth buffers and Point Clouds.
-* Validating **Intrinsic/Extrinsic matrices** for accurate computer vision.
+---
+
+## 🟦 3. Decoupled & Relative Motion
+
+**File:** `rmpflow/arm/decoupled_franka.py`
+
+Explores **whole-body control** concepts using relative coordinates.
+Useful for robotic arms mounted on mobile bases.
 
 ---
 
@@ -80,50 +96,67 @@ A standalone module for **Simulated Sensor integration**.
 
 ```text
 .
-├── PickPlaceController
+├── PickPlaceController     # High-Level Task Logic
 │   └── arm
-│       ├── hello_pick_place.py       # RMPFlow & Kinematics Basics
+│       ├── hello_pick_place.py       # Kinematics Basics
 │       └── RGB_cube_sorter.py        # [MAIN] Visual Servoing & Grasp Heuristics
-├── Sensor                            
+├── rmpflow                 # Advanced Motion Generation (Lula/Riemannian)
+│   └── arm
+│       ├── base.usd                  # Custom USD Stage
+│       ├── conveyor belt.py          # [MAIN] Dynamic Moving Target Interception
+│       ├── conveyor.usd              # Conveyor Asset
+│       ├── decoupled_franka.py       # Relative Frame Control
+│       ├── franka_pick.py            # RMPFlow Pick Logic
+│       └── hello_rmpflow.py          # RMPFlow Initialization
+├── Sensor                  # Perception Sandbox
 │   └── hello_cam.py                  # Synthetic Data & OpenCV Pipeline
-├── media                             
+├── media                   
 │   └── Sorter.gif 
 └── README.md
 ```
 
------
+---
 
 # ⚙️ Installation & Execution
 
 ### Prerequisites
 
-  * **OS:** Ubuntu 22.04 LTS
-  * **GPU:** NVIDIA RTX Series (RTX 3060 or higher recommended)
-  * **Software:** NVIDIA Isaac Sim 4.5.0
-  * **Dependencies:** `opencv-python`, `numpy` (bundled with Isaac Sim python)
+* Ubuntu 22.04 LTS
+* NVIDIA RTX GPU
+* Isaac Sim **4.5.0**
+* Python dependencies:
 
-### Running the Autonomous Sorter
+  ```
+  opencv-python
+  numpy
+  scipy
+  ```
 
-Execute via the Isaac Sim python wrapper to ensure access to Omniverse kit extensions:
+### Run Dynamic Conveyor Interception
 
 ```bash
-#run
- ./python.sh path/to/repo/PickPlaceController/arm/RGB_cube_sorter.py
+./python.sh path/to/repo/rmpflow/arm/conveyor_belt.py
 ```
 
------
+### Run RGB-D Sorting System
+
+```bash
+./python.sh path/to/repo/PickPlaceController/arm/RGB_cube_sorter.py
+```
+
+---
 
 # 🔮 Roadmap
 
-  * [x] **Visual Servoing:** Closed-loop pick and place via RGB-D.
-  * [x] **Grasp Logic:** Geometric heuristic for clutter management.
-  * [ ] **Domain Randomization:** Varying lighting/texture for robust ML training.
-  * [ ] **ROS2 Bridge:** Publishing camera frames to `/camera/rgb` and subscribing to `/joint_states`.
-  * [ ] **Reinforcement Learning:** Porting the task to `OmniIsaacGymEnvs`.
+* [x] Visual Servoing
+* [x] RMPFlow Integration
+* [x] Dynamic Moving-Target Interception
+* [ ] Domain Randomization
+* [ ] Mobile Manipulation
 
------
+---
 
 # 📜 License
 
-This project is released for **Educational and Research Use**.
+Released for **Educational & Research Use**.
 
