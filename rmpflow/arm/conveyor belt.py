@@ -1,5 +1,3 @@
-# Copyright (c) 2025, The Big Brain. All rights reserved.
-# FINAL FIX: Removed "Run Away" Velocity + Stable 8cm Lead
 
 from isaacsim import SimulationApp
 simulation_app = SimulationApp({"headless": False})
@@ -28,7 +26,7 @@ USD_PATH = "/home/popoy/robotics/sim/isaacsim_manipulator/rmpflow/arm/conveyor.u
 # Spawn slightly lower to reduce bounce (1.83)
 GLOBAL_SPAWN_CENTER = np.array([-3.0, 3.63, 1.83]) 
 ROBOT_BASE_POS = np.array([0.0, 3.3, 1.8])
-ROBOT_BASE_ROT = np.array([0.0, 0.0, -45.0])
+ROBOT_BASE_ROT = np.array([0.0, 0.0, 90.0])
 
 BELT_DIR = np.array([1.0, 0.0, 0.0]) 
 BELT_SPEED = 0.1 
@@ -221,8 +219,7 @@ def main():
 
         elif current_state == PickStates.GRASP:
             # FIX: MOVED WITH THE CUBE, DO NOT JUMP AHEAD.
-            # We maintain the 'locked_offset' which is the relative position at trigger time.
-            # We DO NOT add extra belt velocity here, because 'smoothed_cube_pos' is already moving!
+            # Maintain the 'locked_offset' which is the relative position at trigger time.
             target_pos = smoothed_cube_pos + locked_offset
             
             # Continue pushing down
